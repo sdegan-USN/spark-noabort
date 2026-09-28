@@ -6,7 +6,7 @@ a Python module and a byte-for-byte-equivalent JS/Node module, same protocol, sa
 
 It exists because closing a connection *is* cancelling the request on the other end: a socket
 timeout, a `timeout`-wrapped process getting killed, `fetch`'s own default header timeout,
-`process.exit()` — anything that closes the TCP connection tells the server "the client is
+`process.exit()`, anything that closes the TCP connection tells the server "the client is
 gone," and a server like vLLM cancels the in-flight generation right then. That's fine for a
 quick API call. It's wasteful for a slow inference request behind a deep queue, where the
 caller wants to give up *waiting* on its own timetable without also discarding GPU time and a
@@ -25,19 +25,19 @@ waits at most `deadline_s`/`deadlineMs` for a reply on that pipe:
 - **Reply lands in time:** the caller acks, gets `{ok: true, status, json, ms}`, and the carrier
   exits.
 - **Deadline passes first:** the caller stops waiting and gets `{abandoned: true, ms}`. It does
-  **not** ack, and does **not** close the underlying connection — the carrier keeps holding it,
+  **not** ack, and does **not** close the underlying connection. The carrier keeps holding it,
   independent of whether the original caller is still running, has moved on, or has exited.
   When the real reply eventually lands, the carrier appends one row to an optional ledger file
   (`late`) with the real token/usage counts from the response, so slow-but-successful requests
   still get accounted for even though the caller stopped waiting on them.
 - **Transport failure or non-2xx status:** `{error: "...", ms}` (or `{error: "http_500", status,
-  text}` etc.) — returned promptly, without waiting for any deadline.
+  text}` etc.), returned promptly, without waiting for any deadline.
 
 The only short timeout in the whole path is the initial TCP connect (nothing has been sent yet,
 so there's nothing to cancel by giving up on it). The read timeout the carrier applies
-(`READ_TIMEOUT_S` / `READ_TIMEOUT_MS`, default 2 hours) is a safety net against a genuinely
-half-open socket, not a cancellation mechanism — set it comfortably above the slowest reply your
-endpoint can produce under a full queue.
+(`READ_TIMEOUT_S` / `READ_TIMEOUT_MS`, default 2 hours) is a safety net against a socket that is
+half-open and never coming back, not a cancellation mechanism. Set it comfortably above the
+slowest reply your endpoint can produce under a full queue.
 
 ## Install
 
@@ -114,7 +114,7 @@ the caller has already given up on it:
 
 The appended row also gets `measured` (true if the reply's `usage` block had real token counts),
 `late: true`, `outcome: "late-reply"`, and `lateMs` (time from the original request to the late
-reply). Omit `late` entirely to skip ledgering — late replies are then simply discarded once the
+reply). Omit `late` entirely to skip ledgering; late replies are then discarded once the
 carrier's connection closes.
 
 ## Exit codes (`--post` CLI mode, Python)
@@ -138,5 +138,6 @@ status, and a refused connection.
 
 ## Where this came from
 
-Built for a six-seat multi-agent engineering setup where Claude Code, Codex, and Grok edit the
-same repositories concurrently; see sean.theinformed.org/method/
+Built for an eleven-seat setup where Claude Code, Codex, and Grok edit the same repositories at
+once. Written with coding agents, designed and reviewed by Sean Egan. See
+https://sean.theinformed.org/method/
